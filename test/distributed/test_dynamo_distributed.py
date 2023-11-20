@@ -587,6 +587,7 @@ class TestSingleProc(DynamoDistributedSingleProcTestCase):
     @torch._inductor.config.patch({"layout_optimization": True, "keep_output_stride": False})
     @patch.object(config, "optimize_ddp", True)
     def test_graph_split_inductor_layout_optimizations(self):
+        assert config.optimize_ddp
         channel_dim = 512
         # channel dim must be > 64 for inductor to do layout optimization and use NHWC
 
