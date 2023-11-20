@@ -335,21 +335,39 @@ or file a github issue."""
                 super().__init__(module)
                 self.compiler = compiler
 
-            def compile_submod(self, input_mod, args, kwargs):
+            def lazily_compile_submod(self, input_mod):
                 """
                 Compile the submodule,
                 using a wrapper to make sure its output is always a tuple,
                 which is required by AotAutograd based compilers
                 """
-                assert len(kwargs) == 0, "We assume only args for these modules"
 
                 class WrapperModule(torch.nn.Module):
-                    def __init__(self, submod, unwrap_singleton_tuple):
+                    def __init__(self, submod, compiler, unwrap_singleton_tuple):
                         super().__init__()
                         self.submod = submod
+                        self.compiler = compiler
+                        self.compiled = False
                         self.unwrap_singleton_tuple = unwrap_singleton_tuple
 
                     def forward(self, *args):
+                        fake_args = []
+                        for arg in args:
+                            if isinstance(arg, torch.Tensor) and not isinstance(
+                                arg, torch._subclasses.FakeTensor
+                            ):
+                                fake_args.append(fake_mode.from_tensor(arg))
+                            else:
+                                fake_args.append(arg)
+
+                        if not self.compiled:
+                            # First trace with fake args
+                            new_submod = self.compiler(self.submod, tuple(fake_args))
+                            del self.submod
+                            self.submod = new_submod
+                            self.compiled = True
+                            self.compiler = None
+
                         x = self.submod(*args)
                         # TODO(whc)
                         # for some reason the isinstance check is necessary if I split one node per submod
@@ -376,7 +394,8 @@ or file a github issue."""
                     ],
                 )
                 wrapper = WrapperModule(
-                    self.compiler(input_mod, args),
+                    input_mod,
+                    self.compiler,
                     unwrap_singleton_tuple,
                 )
                 return wrapper
@@ -403,38 +422,28 @@ or file a github issue."""
             # to match what aot_autograd expects. See Note: [Fake Modules and AOTAutograd]
             def run_node(self, n: Node) -> Any:
                 args, kwargs = self.fetch_args_kwargs_from_env(n)
-                new_args = []
                 assert fake_mode
+                fake_args = []
                 for arg in args:
                     if isinstance(arg, torch.Tensor) and not isinstance(
                         arg, torch._subclasses.FakeTensor
                     ):
-                        new_args.append(fake_mode.from_tensor(arg))
+                        fake_args.append(fake_mode.from_tensor(arg))
                     else:
-                        new_args.append(arg)
-
-                log.debug("run_node %s, %s got args %s", n.op, n.target, args_str(args))
-                assert isinstance(args, tuple)
-                assert isinstance(kwargs, dict)
+                        fake_args.append(arg)
 
                 if n.op == "call_module":
+                    assert not kwargs, "Only deal with args for now"
                     real_mod = self.fetch_attr(n.target)
-                    if fake_mode:
-                        curr_submod = deepcopy_to_fake_tensor(real_mod, fake_mode)
-                    else:
-                        curr_submod = real_mod
 
-                    ddp_graph_log.debug(
-                        "\n---%s graph---\n%s", n.target, curr_submod.graph
-                    )
+                    curr_submod = deepcopy_to_fake_tensor(real_mod, fake_mode)
 
                     # When calling the compiler on the submod, inputs (new_args) are expected to
                     # be FakeTensors already since Dynamo would have made them FakeTensors in the
                     # non-DDP flow.  However, the parameters are _not_ expected to be FakeTensors,
                     # since this wrapping happens during compilation
-                    compiled_submod_real = self.compile_submod(
-                        real_mod, new_args, kwargs
-                    )
+                    assert len(kwargs) == 0, "We assume only args for these modules"
+                    compiled_submod_real = self.lazily_compile_submod(real_mod)
 
                     # We update the original (outer) graph with a call into the compiled module
                     # instead of the uncompiled one.
@@ -445,10 +454,10 @@ or file a github issue."""
                     # Finally, we have to produce inputs for use compiling the next submodule,
                     # and these need to be FakeTensors, so we execute the module under fake_mode
                     with fake_mode:
-                        return curr_submod(*new_args, **kwargs)
+                        return curr_submod(*fake_args, **kwargs)
                 else:
                     # placeholder or output nodes don't need to get compiled, just executed
-                    return getattr(self, n.op)(n.target, new_args, kwargs)
+                    return getattr(self, n.op)(n.target, fake_args, kwargs)
 
         submod_compiler = SubmodCompiler(split_gm, self.backend_compile_fn)
         submod_compiler.run(*example_inputs)
