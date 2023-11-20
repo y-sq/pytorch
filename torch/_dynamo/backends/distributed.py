@@ -438,16 +438,16 @@ or file a github issue."""
 
                     curr_submod = deepcopy_to_fake_tensor(real_mod, fake_mode)
 
+                    ddp_graph_log.debug(
+                        "\n---%s graph---\n%s", n.target, curr_submod.graph
+                    )
+
                     # When calling the compiler on the submod, inputs (new_args) are expected to
                     # be FakeTensors already since Dynamo would have made them FakeTensors in the
                     # non-DDP flow.  However, the parameters are _not_ expected to be FakeTensors,
                     # since this wrapping happens during compilation
                     assert len(kwargs) == 0, "We assume only args for these modules"
                     compiled_submod_real = self.lazily_compile_submod(real_mod)
-
-                    ddp_graph_log.debug(
-                        "\n---%s graph---\n%s", n.target, curr_submod.graph
-                    )
 
                     # We update the original (outer) graph with a call into the compiled module
                     # instead of the uncompiled one.
