@@ -329,7 +329,8 @@ or file a github issue."""
         debug_str += "\n---------------\n"
         ddp_graph_log.debug(debug_str)
 
-        # 3: compile each of the partitioned submodules using the user-provided compiler
+        # 3: create a wrapper which lazily compiles each of the partitioned submodules
+        # using the user-provided compiler
         class SubmodCompiler(torch.fx.interpreter.Interpreter):
             def __init__(self, module, compiler):
                 super().__init__(module)
@@ -400,26 +401,8 @@ or file a github issue."""
                 )
                 return wrapper
 
-            # Note:
-            #
-            # The way distributed works today around fake tensors can be somewhat confusing.
-            # Some of these codepaths are shared in both runtime, and compile time. The presence
-            # of a fake_mode, read off of fake tensor inputs, dictates how we will operate.
-            #
-            # A few things to keep in mind:
-            #
-            # 1) We invoke `compile_submod` with a real module. The output of that gets stored
-            # on the graph via `self.module.add_submodule(n.target, compiled_submod_real)`.
-            #
-            # 2) When running a call_module targeted node, if we have a fake_mode, we fakify the
-            # module we got from self.fetch_attr(n.target). Regardless of fake_mode, we then execute it.
-            #
-            # 3) Fake tensors should always be around during compile time.
-            #
-            # 4) Fake tensors should never be around at runtime.
-            #
-            # 5) We end up with a compilation mode that takes a real submodule and fake tensors,
-            # to match what aot_autograd expects. See Note: [Fake Modules and AOTAutograd]
+            # We replace the submodules with lazy submodules which compile
+            # the corresponding submodules when they are run with real values
             def run_node(self, n: Node) -> Any:
                 _, kwargs = self.fetch_args_kwargs_from_env(n)
                 assert fake_mode
@@ -431,10 +414,6 @@ or file a github issue."""
                         "\n---%s graph---\n%s", n.target, real_mod.graph
                     )
 
-                    # When calling the compiler on the submod, inputs (new_args) are expected to
-                    # be FakeTensors already since Dynamo would have made them FakeTensors in the
-                    # non-DDP flow.  However, the parameters are _not_ expected to be FakeTensors,
-                    # since this wrapping happens during compilation
                     assert len(kwargs) == 0, "We assume only args for these modules"
                     compiled_submod_real = self.lazily_compile_submod(real_mod)
 
