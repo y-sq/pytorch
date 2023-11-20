@@ -421,20 +421,8 @@ or file a github issue."""
             # 5) We end up with a compilation mode that takes a real submodule and fake tensors,
             # to match what aot_autograd expects. See Note: [Fake Modules and AOTAutograd]
             def run_node(self, n: Node) -> Any:
-                args, kwargs = self.fetch_args_kwargs_from_env(n)
+                _, kwargs = self.fetch_args_kwargs_from_env(n)
                 assert fake_mode
-                fake_args = []
-                for arg in args:
-                    if isinstance(arg, torch.Tensor) and not isinstance(
-                        arg, torch._subclasses.FakeTensor
-                    ):
-                        fake_args.append(fake_mode.from_tensor(arg))
-                    else:
-                        fake_args.append(arg)
-
-                log.debug("run_node %s, %s got args %s", n.op, n.target, args_str(args))
-                assert isinstance(args, tuple)
-                assert isinstance(kwargs, dict)
 
                 if n.op == "call_module":
                     real_mod = self.fetch_attr(n.target)
@@ -457,14 +445,6 @@ or file a github issue."""
                     self.module.delete_submodule(n.target)
                     n.target = "compiled_" + n.target
                     self.module.add_submodule(n.target, compiled_submod_real)
-
-                    # Finally, we have to produce inputs for use compiling the next submodule,
-                    # and these need to be FakeTensors, so we execute the module under fake_mode
-                    with fake_mode:
-                        return curr_submod(*fake_args, **kwargs)
-                else:
-                    # placeholder or output nodes don't need to get compiled, just executed
-                    return getattr(self, n.op)(n.target, fake_args, kwargs)
 
         submod_compiler = SubmodCompiler(split_gm, self.backend_compile_fn)
         submod_compiler.run(*example_inputs)
