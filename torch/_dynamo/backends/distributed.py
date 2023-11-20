@@ -8,6 +8,7 @@ from torch import fx
 from torch._dynamo.output_graph import GraphCompileReason
 from torch._dynamo.utils import detect_fake_mode
 from torch.fx.node import Node
+from torch._subclasses.fake_tensor import is_fake
 
 log = logging.getLogger(__name__)
 ddp_graph_log = torch._logging.getArtifactLogger(__name__, "ddp_graphs")
@@ -335,16 +336,13 @@ class DDPOptimizer:
                         self.unwrap_singleton_tuple = unwrap_singleton_tuple
 
                     def forward(self, *args):
-                        fake_args = []
-                        for arg in args:
-                            if isinstance(arg, torch.Tensor) and not isinstance(
-                                arg, torch._subclasses.FakeTensor
-                            ):
-                                fake_args.append(fake_mode.from_tensor(arg))
-                            else:
-                                fake_args.append(arg)
-
                         if not self.compiled:
+                            fake_args = []
+                            for arg in args:
+                                if isinstance(arg, torch.Tensor) and not is_fake(arg):
+                                    fake_args.append(fake_mode.from_tensor(arg))
+                                else:
+                                    fake_args.append(arg)
                             # First trace with fake args
                             new_submod = self.compiler(self.submod, tuple(fake_args))
                             del self.submod
