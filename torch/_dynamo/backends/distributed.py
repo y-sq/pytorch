@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 import torch
 from torch import fx
 from torch._dynamo.output_graph import GraphCompileReason
-from torch._dynamo.utils import deepcopy_to_fake_tensor, detect_fake_mode
+from torch._dynamo.utils import detect_fake_mode
 from torch.fx.node import Node
 
 log = logging.getLogger(__name__)
@@ -427,10 +427,8 @@ or file a github issue."""
                 if n.op == "call_module":
                     real_mod = self.fetch_attr(n.target)
 
-                    curr_submod = deepcopy_to_fake_tensor(real_mod, fake_mode)
-
                     ddp_graph_log.debug(
-                        "\n---%s graph---\n%s", n.target, curr_submod.graph
+                        "\n---%s graph---\n%s", n.target, real_mod.graph
                     )
 
                     # When calling the compiler on the submod, inputs (new_args) are expected to
