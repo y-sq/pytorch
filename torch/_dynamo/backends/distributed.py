@@ -7,8 +7,8 @@ import torch
 from torch import fx
 from torch._dynamo.output_graph import GraphCompileReason
 from torch._dynamo.utils import detect_fake_mode
-from torch.fx.node import Node
 from torch._subclasses.fake_tensor import is_fake
+from torch.fx.node import Node
 
 log = logging.getLogger(__name__)
 ddp_graph_log = torch._logging.getArtifactLogger(__name__, "ddp_graphs")
