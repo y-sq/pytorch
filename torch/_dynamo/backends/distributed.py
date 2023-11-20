@@ -432,6 +432,10 @@ or file a github issue."""
                     else:
                         fake_args.append(arg)
 
+                log.debug("run_node %s, %s got args %s", n.op, n.target, args_str(args))	
+                assert isinstance(args, tuple)	
+                assert isinstance(kwargs, dict)
+
                 if n.op == "call_module":
                     assert not kwargs, "Only deal with args for now"
                     real_mod = self.fetch_attr(n.target)
