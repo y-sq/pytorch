@@ -341,7 +341,9 @@ class DDPOptimizer:
                             for arg in args:
                                 if isinstance(arg, torch.Tensor) and not is_fake(arg):
                                     fake_args.append(
-                                        torch._dynamo.utils.to_fake_tensor(arg, fake_mode)
+                                        torch._dynamo.utils.to_fake_tensor(
+                                            arg, fake_mode
+                                        )
                                     )
                                 else:
                                     fake_args.append(arg)
