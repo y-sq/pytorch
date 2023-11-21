@@ -313,21 +313,20 @@ class DDPOptimizer:
         debug_str += "\n---------------\n"
         ddp_graph_log.debug(debug_str)
 
-        # 3: create a wrapper which lazily compiles each of the partitioned submodules
-        # using the user-provided compiler
-        class SubmodCompiler(torch.fx.interpreter.Interpreter):
+        # 3: Replace submodules with lazily compiling submodule
+        class SubmoduleReplacer(torch.fx.interpreter.Interpreter):
             def __init__(self, module, compiler):
                 super().__init__(module)
                 self.compiler = compiler
 
-            def lazily_compile_submod(self, input_mod):
+            def lazily_compiled_submod(self, input_mod):
                 """
-                Compile the submodule,
-                using a wrapper to make sure its output is always a tuple,
-                which is required by AotAutograd based compilers
+                Create a wrapper around submodules which:
+                - lazily compiles each of the partitioned submodules using the user-provided compiler
+                - unpacks singleton tuples/lists into flat arg
                 """
 
-                class WrapperModule(torch.nn.Module):
+                class LazilyCompiledModule(torch.nn.Module):
                     def __init__(self, submod, compiler, unwrap_singleton_tuple):
                         super().__init__()
                         self.submod = submod
@@ -337,6 +336,9 @@ class DDPOptimizer:
 
                     def forward(self, *args):
                         if not self.compiled:
+                            assert (
+                                fake_mode
+                            ), "fake mode should have been available from"
                             fake_args = []
                             for arg in args:
                                 if isinstance(arg, torch.Tensor) and not is_fake(arg):
@@ -355,10 +357,10 @@ class DDPOptimizer:
                             self.compiler = None
 
                         x = self.submod(*args)
-                        # TODO(whc)
-                        # for some reason the isinstance check is necessary if I split one node per submod
-                        # - even though I supposedly wrapped the output in a tuple in those cases, the real
-                        # compiled module was still returning a tensor
+                        # we must let 'input_mod' return a tuple, to make AOT happy.
+                        # (aot_autograd compile_fn literally requires that the output of a graph it compiles is a tuple).
+                        # however, we don't acutally want this tuple to be returned, since the fx logic that calls the submod
+                        # will again wrap outputs from the submod in a tuple.  So we unwrap it, and count on it being re-wrapped
                         if self.unwrap_singleton_tuple and isinstance(x, (tuple, list)):
                             return x[0]
                         return x
@@ -379,7 +381,7 @@ class DDPOptimizer:
                         traceback.FrameSummary(__file__, 0, DDPOptimizer),
                     ],
                 )
-                wrapper = WrapperModule(
+                wrapper = LazilyCompiledModule(
                     input_mod,
                     self.compiler,
                     unwrap_singleton_tuple,
@@ -388,10 +390,9 @@ class DDPOptimizer:
 
             # We replace the submodules with lazy submodules which compile
             # the corresponding submodules when they are run with real values
+            # Always returns `None` - we do not need to propagate values in order
+            # to replace submodules.
             def run_node(self, n: Node) -> Any:
-                _, kwargs = self.fetch_args_kwargs_from_env(n)
-                assert fake_mode
-
                 if n.op == "call_module":
                     real_mod = self.fetch_attr(n.target)
 
@@ -399,16 +400,16 @@ class DDPOptimizer:
                         "\n---%s graph---\n%s", n.target, real_mod.graph
                     )
 
-                    assert len(kwargs) == 0, "We assume only args for these modules"
-                    compiled_submod_real = self.lazily_compile_submod(real_mod)
+                    assert len(n.kwargs) == 0, "We assume only args for these modules"
+                    lazily_compiled_submod = self.lazily_compiled_submod(real_mod)
 
                     # We update the original (outer) graph with a call into the compiled module
                     # instead of the uncompiled one.
                     self.module.delete_submodule(n.target)
                     n.target = "compiled_" + n.target
-                    self.module.add_submodule(n.target, compiled_submod_real)
+                    self.module.add_submodule(n.target, lazily_compiled_submod)
 
-        submod_compiler = SubmodCompiler(split_gm, self.backend_compile_fn)
+        submod_compiler = SubmoduleReplacer(split_gm, self.backend_compile_fn)
         submod_compiler.run(*example_inputs)
         split_gm.recompile()
 
