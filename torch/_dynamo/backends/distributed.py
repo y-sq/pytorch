@@ -338,7 +338,7 @@ class DDPOptimizer:
                         if not self.compiled:
                             assert (
                                 fake_mode
-                            ), "fake mode should have been available from"
+                            ), "fake mode must have been available when creating lazy submod"
                             fake_args = []
                             for arg in args:
                                 if isinstance(arg, torch.Tensor) and not is_fake(arg):
