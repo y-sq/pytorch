@@ -340,7 +340,9 @@ class DDPOptimizer:
                             fake_args = []
                             for arg in args:
                                 if isinstance(arg, torch.Tensor) and not is_fake(arg):
-                                    fake_args.append(fake_mode.from_tensor(arg))
+                                    fake_args.append(
+                                        torch._dynamo.utils.to_fake_tensor(arg, fake_mode)
+                                    )
                                 else:
                                     fake_args.append(arg)
                             # First trace with fake args
