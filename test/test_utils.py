@@ -758,6 +758,15 @@ class TestStandaloneCPPJIT(TestCase):
             env = os.environ.copy()
             if IS_WINDOWS:
                 cudaPath = os.environ.get('CUDA_PATH')
+                print('ionut')
+                print(cudaPath)
+                # Retrieve all environment variables
+                env_vars = os.environ
+
+                # Print each environment variable
+                for key, value in env_vars.items():
+                    print(f"{key}: {value}")
+                print('ionut end')
                 cuptiPath = cudaPath + "extras/CUPTI/lib64"
                 env['PATH'] = cuptiPath + os.pathsep + cudaPath + os.pathsep + env['PATH']
             for shell in [True, False]:
