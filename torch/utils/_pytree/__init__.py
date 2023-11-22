@@ -20,6 +20,10 @@ from .api import (
     DumpableContext,
     FlattenFunc,
     FromDumpableContextFn,
+    is_namedtuple,
+    is_namedtuple_class,
+    is_structseq,
+    is_structseq_class,
     LeafSpec,
     PyTree,
     register_pytree_node,
@@ -90,6 +94,10 @@ __all__ = [
     "treespec_dumps",
     "treespec_loads",
     "treespec_pprint",
+    "is_namedtuple",
+    "is_namedtuple_class",
+    "is_structseq",
+    "is_structseq_class",
 ]
 
 
