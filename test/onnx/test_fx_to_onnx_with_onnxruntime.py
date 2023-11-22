@@ -198,15 +198,23 @@ class TestFxToOnnxWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
             ),
         )
         onnx_test_common.assert_dynamic_shapes(onnx_program, self.dynamic_shapes)
-        onnx_format_args = onnx_program.adapt_torch_inputs_to_onnx(tensor_x, 8.0)
-        ref_outputs = onnx_program.adapt_torch_outputs_to_onnx(func(tensor_x, 8.0))
+        onnx_format_args = onnx_program.adapt_torch_inputs_to_onnx(
+            tensor_x, model=func, b=8.0
+        )
+        ref_outputs = onnx_program.adapt_torch_outputs_to_onnx(
+            func, func(tensor_x, 8.0)
+        )
         ort_outputs = onnx_test_common.run_ort(onnx_program, onnx_format_args)
         for ref_output, ort_output in zip(ref_outputs, ort_outputs):
             torch.testing.assert_close(ref_output, torch.tensor(ort_output))
 
         # test on different non-tensor input - xfail
-        onnx_format_args = onnx_program.adapt_torch_inputs_to_onnx(tensor_x, 9.0)
-        ref_outputs = onnx_program.adapt_torch_outputs_to_onnx(func(tensor_x, 9.0))
+        onnx_format_args = onnx_program.adapt_torch_inputs_to_onnx(
+            tensor_x, model=func, b=9.0
+        )
+        ref_outputs = onnx_program.adapt_torch_outputs_to_onnx(
+            func, func(tensor_x, 9.0)
+        )
         _ = onnx_test_common.run_ort(onnx_program, onnx_format_args)
         for ref_output, ort_output in zip(ref_outputs, ort_outputs):
             torch.testing.assert_close(ref_output, torch.tensor(ort_output))
@@ -808,10 +816,10 @@ class TestFxToOnnxWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
             kwargs = create_pytorch_only_kwargs()
             # Original outputs.
             ref_outputs = onnx_program.adapt_torch_outputs_to_onnx(
-                model(*args, **kwargs)
+                model, model(*args, **kwargs)
             )
             # ORT outputs.
-            args_not_none = onnx_program.adapt_torch_inputs_to_onnx(*args)
+            args_not_none = onnx_program.adapt_torch_inputs_to_onnx(*args, model=model)
 
             # Drop Parameters and buffers added by fx_serialization.save_model_with_external_data
             args_not_none = args_not_none[: len(args) - len(kwargs)]
@@ -977,7 +985,16 @@ class TestFxToOnnxWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
 def _parameterized_class_attrs_and_values_with_fake_options():
     input_values = []
     input_values.extend(
-        itertools.product((True, False), (True, False), (True, False), (True, False))
+        itertools.product(
+            (True, False),
+            (True, False),
+            (True, False),
+            (True, False),
+            (
+                onnx_test_common.TorchModelType.TORCH_NN_MODULE,
+                onnx_test_common.TorchModelType.TORCH_EXPORT_EXPORTEDPROGRAM,
+            ),
+        )
     )
     return {
         "attrs": [
@@ -985,6 +1002,7 @@ def _parameterized_class_attrs_and_values_with_fake_options():
             "dynamic_shapes",
             "load_checkpoint_during_init",
             "export_within_fake_mode",
+            "model_type",
         ],
         "input_values": input_values,
     }
@@ -1004,6 +1022,7 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
     dynamic_shapes: bool
     load_checkpoint_during_init: bool
     export_within_fake_mode: bool
+    model_type: onnx_test_common.TorchModelType
 
     def setUp(self):
         super().setUp()
@@ -1018,6 +1037,7 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
         create_kwargs: Callable,
         load_checkpoint_during_init: bool,
         export_within_fake_mode: bool,
+        model_type: onnx_test_common.TorchModelType,
     ):
         """Test helper for FakeTensorMode-enabled exporter.
 
@@ -1029,6 +1049,8 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
             load_checkpoint_during_init: Whether to load a checkpoint during model initialization.
                 (after or during model creation, but before exporting starts)
             export_within_fake_mode: Whether to call torch.onnx._dynamo_export within torch._subclasses.FakeTensorMode
+            model_type: Type of user model. Used to determine whether the user model must be exported to
+                torch.export.ExportedProgram before passing it to torch.onnx.dynamo_export
 
         This test contains several steps.
 
@@ -1068,6 +1090,13 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
                 )
 
                 if export_within_fake_mode:
+                    if (
+                        model_type
+                        == onnx_test_common.TorchModelType.TORCH_EXPORT_EXPORTEDPROGRAM
+                    ):
+                        fake_model = torch.export.export(
+                            fake_model, args=fake_args, kwargs=fake_kwargs
+                        )
                     onnx_program = torch.onnx.dynamo_export(
                         fake_model,
                         *fake_args,
@@ -1076,6 +1105,13 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
                     )
 
             if not export_within_fake_mode:
+                if (
+                    model_type
+                    == onnx_test_common.TorchModelType.TORCH_EXPORT_EXPORTEDPROGRAM
+                ):
+                    fake_model = torch.export.export(
+                        fake_model, args=fake_args, kwargs=fake_kwargs
+                    )
                 onnx_program = torch.onnx.dynamo_export(
                     fake_model, *fake_args, **fake_kwargs, export_options=export_options
                 )
@@ -1092,10 +1128,12 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
                 kwargs = create_kwargs()
                 # Original outputs.
                 ref_outputs = onnx_program.adapt_torch_outputs_to_onnx(
-                    real_model(*args, **kwargs)
+                    real_model, real_model(*args, **kwargs)
                 )
                 # ORT outputs.
-                args_not_none = onnx_program.adapt_torch_inputs_to_onnx(*args, **kwargs)
+                args_not_none = onnx_program.adapt_torch_inputs_to_onnx(
+                    *args, model=real_model, **kwargs
+                )
 
                 ort_outputs = onnx_test_common.run_ort(
                     tmp_onnx_file.name,
@@ -1133,6 +1171,7 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
             create_kwargs,
             load_checkpoint_during_init=self.load_checkpoint_during_init,
             export_within_fake_mode=self.export_within_fake_mode,
+            model_type=self.model_type,
         )
 
     @pytorch_test_common.xfail(
@@ -1165,6 +1204,7 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
             create_kwargs,
             load_checkpoint_during_init=self.load_checkpoint_during_init,
             export_within_fake_mode=self.export_within_fake_mode,
+            model_type=self.model_type,
         )
 
     def test_large_scale_exporter_with_toy_mlp(self):
@@ -1202,6 +1242,7 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
             create_kwargs,
             load_checkpoint_during_init=self.load_checkpoint_during_init,
             export_within_fake_mode=self.export_within_fake_mode,
+            model_type=self.model_type,
         )
 
     def test_fake_tensor_mode_huggingface_google_t5(self):
@@ -1233,6 +1274,7 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
             create_kwargs,
             load_checkpoint_during_init=self.load_checkpoint_during_init,
             export_within_fake_mode=self.export_within_fake_mode,
+            model_type=self.model_type,
         )
 
     def test_fake_tensor_mode_huggingface_openai_whisper(self):
@@ -1285,6 +1327,7 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
             create_kwargs,
             load_checkpoint_during_init=self.load_checkpoint_during_init,
             export_within_fake_mode=self.export_within_fake_mode,
+            model_type=self.model_type,
         )
 
     @pytorch_test_common.xfail(
@@ -1314,6 +1357,7 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
             create_kwargs,
             load_checkpoint_during_init=self.load_checkpoint_during_init,
             export_within_fake_mode=self.export_within_fake_mode,
+            model_type=self.model_type,
         )
 
     @pytorch_test_common.skip_dynamic_fx_test(
@@ -1341,6 +1385,7 @@ class TestFxToOnnxFakeTensorWithOnnxRuntime(onnx_test_common._TestONNXRuntime):
             create_kwargs,
             load_checkpoint_during_init=self.load_checkpoint_during_init,
             export_within_fake_mode=self.export_within_fake_mode,
+            model_type=self.model_type,
         )
 
 
