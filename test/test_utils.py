@@ -768,7 +768,7 @@ class TestStandaloneCPPJIT(TestCase):
                     print(f"{key}: {value}")
                 print('ionut end')
                 cuptiPath = cudaPath + "extras/CUPTI/lib64"
-                env['PATH'] = cuptiPath + os.pathsep + cudaPath + os.pathsep + env['PATH']
+                #env['PATH'] = cuptiPath + os.pathsep + cudaPath + os.pathsep + env['PATH']
             for shell in [True, False]:
                 r = subprocess.run(
                     [exec_path],
