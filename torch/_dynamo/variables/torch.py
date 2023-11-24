@@ -290,12 +290,26 @@ class TorchInGraphFunctionVariable(BaseTorchVariable):
                 source=self.source,
             ).call_function(tx, args, kwargs)
             return op
-        elif self.can_constant_fold_through() and (constant_args or unspec_python_args):
+        elif self.can_constant_fold_through() and (
+            constant_args
+            or unspec_python_args
+            or any(isinstance(x, SymNodeVariable) for x in args)
+        ):
             # constant fold
             return ConstantVariable.create(
                 self.as_python_constant()(
-                    *[x.as_python_constant() for x in args],
-                    **{k: v.as_python_constant() for k, v in kwargs.items()},
+                    *[
+                        x.as_python_constant()
+                        if not isinstance(x, SymNodeVariable)
+                        else x.evaluate_expr()
+                        for x in args
+                    ],
+                    **{
+                        k: v.as_python_constant()
+                        if not isinstance(v, SymNodeVariable)
+                        else v.evaluate_expr()
+                        for k, v in kwargs.items()
+                    },
                 ),
             )
         elif self.value in (torch.is_tensor, torch.overrides.is_tensor_like):
