@@ -757,7 +757,7 @@ class TestStandaloneCPPJIT(TestCase):
             )
             env = os.environ.copy()
             if IS_WINDOWS:
-                cudaPath = os.environ.get('CUDA_PATH')
+                cudaPath = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/" + os.environ.get('CUDA_VERSION')
                 print('ionut')
                 print(cudaPath)
                 # Retrieve all environment variables
@@ -767,8 +767,8 @@ class TestStandaloneCPPJIT(TestCase):
                 for key, value in env_vars.items():
                     print(f"{key}: {value}")
                 print('ionut end')
-                cuptiPath = cudaPath + "extras/CUPTI/lib64"
-                #env['PATH'] = cuptiPath + os.pathsep + cudaPath + os.pathsep + env['PATH']
+                cuptiPath = cudaPath + "/extras/CUPTI/lib64"
+                env['PATH'] = cuptiPath + os.pathsep + cudaPath + os.pathsep + env['PATH']
             for shell in [True, False]:
                 r = subprocess.run(
                     [exec_path],
