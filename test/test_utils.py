@@ -762,14 +762,14 @@ class TestStandaloneCPPJIT(TestCase):
                 print(cudaPath)
                 # Retrieve all environment variables
                 env_vars = os.environ
-
+                cuptiPath = cudaPath + "/extras/CUPTI/lib64"
+                cudaPathBin = cudaPath+ "/bin"
+                env['PATH'] = cuptiPath + os.pathsep + cudaPath + os.pathsep + env['PATH']
                 # Print each environment variable
                 for key, value in env_vars.items():
                     print(f"{key}: {value}")
                 print('ionut end')
-                cuptiPath = cudaPath + "/extras/CUPTI/lib64"
-                cudaPathBin = cudaPath+ "/bin"
-                env['PATH'] = cuptiPath + os.pathsep + cudaPath + os.pathsep + env['PATH']
+                
             for shell in [True, False]:
                 r = subprocess.run(
                     [exec_path],
