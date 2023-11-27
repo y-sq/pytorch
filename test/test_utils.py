@@ -757,7 +757,7 @@ class TestStandaloneCPPJIT(TestCase):
             )
             env = os.environ.copy()
             if IS_WINDOWS:
-                cudaPath = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/" + os.environ.get('CUDA_VERSION', "")
+                cudaPath = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v" + os.environ.get('CUDA_VERSION', "")
                 print('ionut')
                 print(cudaPath)
                 # Retrieve all environment variables
