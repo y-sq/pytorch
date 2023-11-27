@@ -49,6 +49,7 @@ from torch.fx.experimental.symbolic_shapes import (
     SYMPY_INTERP,
 )
 
+from torch.utils._python_dispatch import is_traceable_wrapper_subclass
 from torch.utils._traceback import format_frame, report_compile_source_on_error
 from torch.utils.weak import TensorWeakRef
 
@@ -627,7 +628,7 @@ class GuardBuilder(GuardBuilderBase):
         output_graph = self.check_fn_manager.output_graph
         # NB: self.output_graph can be None in the debug_nops tests
         fs = output_graph.tracked_fakes
-        constraint_inputs = [a.constraint_dims for a in fs]
+        input_policies = [a.policy for a in fs]
 
         def get_sources(t_id, dim):
             # Looks up base sources mapped to a tensor id and uses them to create
@@ -670,7 +671,7 @@ class GuardBuilder(GuardBuilderBase):
         guards = output_graph.shape_env.produce_guards(
             [a.fake for a in fs],
             [a.source for a in fs],
-            constraint_inputs=constraint_inputs,
+            input_policies=input_policies,
             equalities_inputs=equalities_inputs,
             source_ref=self.source_ref,
             # Export keeps static.
@@ -1137,6 +1138,16 @@ class CheckFunctionManager:
                     tensor_check_guards[i],
                     log_only=True,
                 )
+
+                # TODO: Figure out if this is the right place for this??
+                # guard ctx for python subclasses
+                if is_traceable_wrapper_subclass(t):
+                    ctx = t.__tensor_flatten__()[1]
+                    add_code_part(
+                        f"{name}.__tensor_flatten__()[1] == {ctx}",
+                        tensor_check_guards[i],
+                        log_only=False,
+                    )
 
         aotautograd_guards: List[GuardEnvExpr] = (
             self.output_graph.tracing_context.guards_context.aotautograd_guards
